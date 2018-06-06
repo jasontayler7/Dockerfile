@@ -1,6 +1,6 @@
 FROM centos
 
-MAINTAINER MAINTAINER KT-PaaS-Support <KT-PaaS-Support-L2@kohls.com>
+MAINTAINER MAINTAINER Abhishek <abhishekbhardwaj510@gmail.com>
 
 ENV DATA_VERSION=1.6.0 \
     FLUENTD_VERSION=0.12.42 \
