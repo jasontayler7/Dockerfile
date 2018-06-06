@@ -1,80 +1,73 @@
-FROM centos:latest
+FROM centos
 
-MAINTAINER maintainer "Abhishek <abhishek.dubey@opstree.com>"
+MAINTAINER MAINTAINER KT-PaaS-Support <KT-PaaS-Support-L2@kohls.com>
 
-# default syslog listener port
-EXPOSE 10514
-# monitor agent port
-EXPOSE 24220
-# default forwarder port
-EXPOSE 24224
-# default debug port
-EXPOSE 24230
-#default port for prometheus to pull metrics
-EXPOSE 24231
-
-USER root
-
-ENV HOME=/opt/app-root/src \
-    PATH=/opt/app-root/src/bin:/opt/app-root/bin:$PATH \
-    RUBY_VERSION=2.0 \
+ENV DATA_VERSION=1.6.0 \
     FLUENTD_VERSION=0.12.42 \
+    FLUENTD_ES=1.13.0-1 \
+    FLUENTD_KUBE_METADATA=1.0.1-1 \
+    FLUENTD_REWRITE_TAG=1.5.6-1 \
+    FLUENTD_SECURE_FWD=0.4.5-2 \
+    FLUENTD_SYSTEMD=0.0.9-1 \
+    FLUENTD_VIAQ_DATA_MODEL=0.0.13 \
+    FLUENTD_AUDIT_LOG_PARSER_VERSION=0.0.5 \
+    FLUENTD_RECORD_MODIFIER=0.6.1 \
     GEM_HOME=/opt/app-root/src \
-    SYSLOG_LISTEN_PORT=10514 \
-    RUBYLIB=/opt/app-root/src/amqp_qpid/lib \
-    RUBYVERREPOPKGS="centos-release-scl" \
-    RUBYVERPKGS="rh-ruby22 scl-utils" \
-    FLUENTD_OPT=""
+    HOME=/opt/app-root/src \
+    PATH=/opt/app-root/src/bin:/opt/app-root/bin:/usr/libexec/fluentd/bin:$PATH \
+    RUBY_VERSION=2.0 \
+    OCP_OPERATIONS_PROJECTS='default openshift openshift-'
 
-RUN rpmkeys --import file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-7
+ARG TEST_REPO
 
-RUN yum -y install https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm ${RUBYVERREPOPKGS} && \
-    yum update -y --setopt=tsflags=nodocs \
-    && \
-    mkdir -p ${HOME}/amqp_qpid \
-    && \
-    yum install -y --setopt=tsflags=nodocs \
-        ruby rubygem-qpid_proton ${RUBYVERPKGS} \
-    && \
-    yum install -y --setopt=tsflags=nodocs --setopt=history_record=yes \
-        gcc-c++ ruby-devel libcurl-devel make cmake swig autoconf automake libtool m4 \
-    && \
-    gem install -N --conservative --minimal-deps \
-        'activesupport:<5' \
-        'public_suffix:<3' \
-        'elasticsearch-transport:<5' \
-        'elasticsearch-api:<5' \
-        'elasticsearch:<5' \
-        fluentd:${FLUENTD_VERSION} \
-        'fluent-plugin-elasticsearch:~>1.0' \
-        'fluent-plugin-kubernetes_metadata_filter:1.0.1' \
-        'fluent-plugin-prometheus:0.4.0' \
-        'fluent-plugin-rewrite-tag-filter:<1.6.0' \
-        fluent-plugin-parser \
-        'fluent-plugin-grok-parser:<0.14' \
-        fluent-plugin-secure-forward \
-        'fluent-plugin-systemd:<0.1.0' \
-        fluent-plugin-viaq_data_model \
-        fluent-plugin-add \
-        fluent-plugin-collectd-nest \
-    && \
-    yum -y history undo last \
-    && \
-    yum -y autoremove \
-    && \
-    yum -y install hostname \
-    && \
+RUN   yum install -y --setopt=tsflags=nodocs \
+      gcc-c++ \
+      ruby \
+      ruby-devel \
+      libcurl-devel \
+      make \
+      bc \
+      iproute \
+      autoconf automake libtool m4 \
+      redhat-rpm-config && \
     yum clean all
 
-VOLUME /data
+RUN mkdir -p ${HOME} && mkdir -p /etc/fluent/plugin && \
+    gem install -N --conservative --minimal-deps --no-ri --no-doc \
+     'activesupport:<5' \
+     'public_suffix:<3' \
+     'elasticsearch-transport:<6' \
+     'elasticsearch-api:<6' \
+     'elasticsearch:<6' \
+      fluentd:${FLUENTD_VERSION} \
+     'fluent-plugin-elasticsearch:<2.0.0' \
+     'fluent-plugin-kubernetes_metadata_filter:<1.1.0' \
+      'fluent-plugin-record-modifier:<1.0.0' \
+      'fluent-plugin-rewrite-tag-filter:<1.6.0' \
+      fluent-plugin-secure-forward \
+     'fluent-plugin-systemd:<0.1.0' \
+      fluent-plugin-viaq_data_model \
+     'fluent-plugin-remote-syslog:1.1' \
+     'fluent-plugin-prometheus:<1.0.0'
 
-RUN  mkdir -p /etc/fluent/configs.d ${HOME}/forwarder-example && \
-     mkdir -p /fluentd/plugins
-     
-COPY fluent.conf /etc/fluent/
+ADD configs.d/ /etc/fluent/configs.d/
+ADD filter_k8s_meta_for_mux_client.rb /etc/fluent/plugin/
+ADD out_syslog_buffered.rb out_syslog.rb out_rawtcp.rb /etc/fluent/plugin/
+ADD parser_viaq_docker_audit.rb viaq_docker_audit.rb /etc/fluent/plugin/
+ADD run.sh generate_throttle_configs.rb generate_syslog_config.rb ${HOME}/
+
+RUN mkdir -p /etc/fluent/configs.d/{dynamic,user} && \
+    chmod -R 777 /etc/fluent && \
+    chmod -R 777 /var/lib/ && \
+    chmod 777 /etc/fluent/configs.d/dynamic && \
+    ln -s /etc/fluent/configs.d/user/fluent.conf /etc/fluent/fluent.conf
 
 WORKDIR ${HOME}
-ADD run.sh ${HOME}/
-RUN chmod +x ${HOME}/run.sh
 
-CMD ${HOME}/run.sh
+CMD ["sh", "run.sh"]
+
+LABEL io.k8s.display-name=Fluentd
+
+EXPOSE 24224
+
+EXPOSE 24231
